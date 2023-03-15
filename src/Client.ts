@@ -19,6 +19,30 @@ export default class Client {
 		this.clientType = ClientType.UNKNOWN;
 		this.server = server;
 
+		let authOk = false;
+		if (socket.handshake.auth["key"] != null) {
+			let key = socket.handshake.auth["key"];
+			if (typeof key === 'string') {
+				let loginResult = this.server.tryLogin(key);
+				if (loginResult != null) {
+					this.clientType = loginResult;
+					console.log("Client with uuid " + this.uuid + " logged in as type " + this.clientType);
+					this.sendData("auth_response", { "success": true, "login_type": this.clientType, "uuid": this.uuid });
+					authOk = true;
+				} else {
+					this.sendData("auth_response", { "success": false, "message": "Authentication failed" });
+					this.socket.disconnect(true);
+					return;
+				}
+			} else {
+				this.sendData("error", {
+					"error": "Invalid data received. Disconnecting socket"
+				});
+				this.socket.disconnect(true);
+				return;
+			}
+		}
+
 		socket.on("disconnect", () => {
 			console.log("Client with id " + this.uuid + " disconnected");
 			this.disconnected = true;
@@ -33,15 +57,17 @@ export default class Client {
 			this.handleIncommingMessage(message, content);
 		});
 
-		this.timeout = setTimeout(() => {
-			console.log("Auth timeout in client with id " + this.uuid);
-			this.disconnected = true;
-			this.timeout = null;
-			this.sendData("auth_timeout", {
-				"message": "Socket did not authenticate within 20 seconds. Disconnecting"
-			});
-			this.socket.disconnect(true);
-		}, 20000);
+		if (!authOk) {
+			this.timeout = setTimeout(() => {
+				console.log("Auth timeout in client with id " + this.uuid);
+				this.disconnected = true;
+				this.timeout = null;
+				this.sendData("auth_timeout", {
+					"message": "Socket did not authenticate within 20 seconds. Disconnecting"
+				});
+				this.socket.disconnect(true);
+			}, 20000);
+		}
 	}
 
 	public sendData(message: string, content: any): void {
